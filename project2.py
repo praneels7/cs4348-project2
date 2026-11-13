@@ -1,53 +1,118 @@
+from collections import deque
 from threading import Semaphore, Thread
+from time import sleep
+
+
+TELLER_COUNT = 3
+CUSTOMER_COUNT = 6
+
+
+class CustomerVisit:
+    def __init__(self, customer_id):
+        self.customer_id = customer_id
+        self.teller_id = None
+        self.transaction = None
+        self.assigned = Semaphore(0)
+        self.introduced = Semaphore(0)
+        self.transaction_requested = Semaphore(0)
+        self.transaction_provided = Semaphore(0)
+        self.transaction_complete = Semaphore(0)
+        self.left_teller = Semaphore(0)
 
 
 def main():
-    introduced = Semaphore(0)
-    transaction_requested = Semaphore(0)
-    transaction_provided = Semaphore(0)
-    transaction_complete = Semaphore(0)
-    customer_left = Semaphore(0)
-    transaction = None
+    line = deque()
+    line_lock = Semaphore(1)
+    customers_waiting = Semaphore(0)
+    tellers_ready = Semaphore(0)
 
-    def teller():
-        print("Teller 0 []: ready to serve")
-        print("Teller 0 []: waiting for a customer")
-        introduced.acquire()
+    def teller(teller_id):
+        print(f"Teller {teller_id} []: ready to serve")
+        tellers_ready.release()
 
-        print("Teller 0 [Customer 0]: asks for transaction")
-        transaction_requested.release()
-        transaction_provided.acquire()
+        while True:
+            print(f"Teller {teller_id} []: waiting for a customer")
+            customers_waiting.acquire()
 
-        print(f"Teller 0 [Customer 0]: finishes {transaction} transaction")
-        transaction_complete.release()
+            with line_lock:
+                visit = line.popleft()
 
-        print("Teller 0 [Customer 0]: waiting for customer to leave")
-        customer_left.acquire()
-        print("Teller 0 []: leaving for the day")
+            # Main adds one shutdown marker per teller after all customers leave.
+            if visit is None:
+                print(f"Teller {teller_id} []: leaving for the day")
+                return
 
-    def customer():
-        nonlocal transaction
+            visit.teller_id = teller_id
+            visit.assigned.release()
+            visit.introduced.acquire()
 
-        print("Customer 0 [Teller 0]: introduces itself")
-        introduced.release()
-        transaction_requested.acquire()
+            actor = f"Teller {teller_id} [Customer {visit.customer_id}]"
+            print(f"{actor}: asks for transaction")
+            visit.transaction_requested.release()
+            visit.transaction_provided.acquire()
 
-        transaction = "deposit"
-        print(f"Customer 0 [Teller 0]: asks for {transaction} transaction")
-        transaction_provided.release()
-        transaction_complete.acquire()
+            # Fixed delay for this queue test so customers overlap.
+            print(f"{actor}: handling {visit.transaction} transaction")
+            sleep(0.02)
+            print(f"{actor}: finishes {visit.transaction} transaction")
+            print(f"{actor}: waiting for customer to leave")
+            visit.transaction_complete.release()
+            visit.left_teller.acquire()
 
-        print("Customer 0 [Teller 0]: leaves teller")
-        customer_left.release()
+    def customer(visit):
+        customer_id = visit.customer_id
+        print(f"Customer {customer_id} []: entering bank")
 
-    teller_thread = Thread(target=teller)
-    customer_thread = Thread(target=customer)
+        with line_lock:
+            print(f"Customer {customer_id} []: getting in line")
+            line.append(visit)
 
-    teller_thread.start()
-    customer_thread.start()
+        customers_waiting.release()
+        visit.assigned.acquire()
 
-    customer_thread.join()
-    teller_thread.join()
+        actor = f"Customer {customer_id} [Teller {visit.teller_id}]"
+        print(f"{actor}: selects teller")
+        print(f"{actor}: introduces itself")
+        visit.introduced.release()
+        visit.transaction_requested.acquire()
+
+        visit.transaction = "deposit"
+        print(f"{actor}: asks for {visit.transaction} transaction")
+        visit.transaction_provided.release()
+        visit.transaction_complete.acquire()
+
+        print(f"{actor}: leaves teller")
+        visit.left_teller.release()
+        print(f"Customer {customer_id} []: leaves the bank")
+
+    tellers = [
+        Thread(target=teller, args=(teller_id,))
+        for teller_id in range(TELLER_COUNT)
+    ]
+    for thread in tellers:
+        thread.start()
+
+    for _ in tellers:
+        tellers_ready.acquire()
+
+    customers = [
+        Thread(target=customer, args=(CustomerVisit(customer_id),))
+        for customer_id in range(CUSTOMER_COUNT)
+    ]
+    for thread in customers:
+        thread.start()
+    for thread in customers:
+        thread.join()
+
+    with line_lock:
+        for _ in tellers:
+            line.append(None)
+
+    for _ in tellers:
+        customers_waiting.release()
+    for thread in tellers:
+        thread.join()
+
     print("The bank closes for the day.")
 
 
