@@ -1,4 +1,5 @@
 from collections import deque
+from random import choice, randint
 from threading import Semaphore, Thread
 from time import sleep
 
@@ -25,6 +26,9 @@ def main():
     line_lock = Semaphore(1)
     customers_waiting = Semaphore(0)
     tellers_ready = Semaphore(0)
+    door = Semaphore(2)
+    manager = Semaphore(1)
+    safe = Semaphore(2)
 
     def teller(teller_id):
         print(f"Teller {teller_id} []: ready to serve")
@@ -51,9 +55,21 @@ def main():
             visit.transaction_requested.release()
             visit.transaction_provided.acquire()
 
-            # Fixed delay for this queue test so customers overlap.
             print(f"{actor}: handling {visit.transaction} transaction")
-            sleep(0.02)
+
+            if visit.transaction == "withdrawal":
+                print(f"{actor}: going to the manager")
+                with manager:
+                    print(f"{actor}: getting manager's permission")
+                    sleep(randint(5, 30) / 1000)
+                    print(f"{actor}: got manager's permission")
+
+            print(f"{actor}: going to safe")
+            with safe:
+                print(f"{actor}: enter safe")
+                sleep(randint(10, 50) / 1000)
+                print(f"{actor}: leaving safe")
+
             print(f"{actor}: finishes {visit.transaction} transaction")
             print(f"{actor}: waiting for customer to leave")
             visit.transaction_complete.release()
@@ -61,7 +77,16 @@ def main():
 
     def customer(visit):
         customer_id = visit.customer_id
-        print(f"Customer {customer_id} []: entering bank")
+        visit.transaction = choice(("deposit", "withdrawal"))
+
+        print(f"Customer {customer_id} []: wants to perform a {visit.transaction} transaction")
+        print(f"Customer {customer_id} []: waiting to go to the bank")
+        sleep(randint(0, 100) / 1000)
+        print(f"Customer {customer_id} []: going to bank.")
+
+        print(f"Customer {customer_id} []: waiting to enter through the door")
+        with door:
+            print(f"Customer {customer_id} []: entering bank.")
 
         with line_lock:
             print(f"Customer {customer_id} []: getting in line")
@@ -76,14 +101,16 @@ def main():
         visit.introduced.release()
         visit.transaction_requested.acquire()
 
-        visit.transaction = "deposit"
         print(f"{actor}: asks for {visit.transaction} transaction")
         visit.transaction_provided.release()
         visit.transaction_complete.acquire()
 
         print(f"{actor}: leaves teller")
         visit.left_teller.release()
-        print(f"Customer {customer_id} []: leaves the bank")
+
+        print(f"Customer {customer_id} []: goes to door")
+        with door:
+            print(f"Customer {customer_id} []: leaves the bank")
 
     tellers = [
         Thread(target=teller, args=(teller_id,))
