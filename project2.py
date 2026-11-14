@@ -5,7 +5,7 @@ from time import sleep
 
 
 TELLER_COUNT = 3
-CUSTOMER_COUNT = 6
+CUSTOMER_COUNT = 50
 
 
 class CustomerVisit:

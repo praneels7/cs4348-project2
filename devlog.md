@@ -30,3 +30,13 @@ I added semaphores that allow two customers to use the door, one teller to reque
 ### Testing
 
 I still need to run the updated version and follow one deposit and one withdrawal by customer ID. I’ll check that the deposit skips the manager, the withdrawal gets approval before entering the safe, and all six customers and three tellers leave before the bank closes.
+
+## Session 4 — Full 50-customer simulation
+
+### Plan
+
+I’ll increase the simulation from six customers to 50 and check that every customer exits and all three tellers sign off before the bank closes.
+
+### Reflection
+
+I redirected the output to a file and counted the lines ending in `leaves the bank`. The six-customer run returned 6, and the full run returned 50. In the full run, all three tellers printed `leaving for the day` before the final message, `The bank closes for the day.`
